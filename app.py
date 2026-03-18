@@ -17,6 +17,12 @@ st.set_page_config(
 
 # ============== 模型配置 ==============
 MODELS = {
+    "Google Gemini 2.5 Pro": {
+        "provider": "gemini",
+        "model": "gemini-2.5-pro-preview-0605",
+        "api_key_name": "GOOGLE_API_KEY",
+        "api_url": "https://aistudio.google.com/app/apikey"
+    },
     "Google Gemini 2.0 Flash": {
         "provider": "gemini",
         "model": "gemini-2.0-flash",
