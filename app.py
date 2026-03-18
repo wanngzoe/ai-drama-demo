@@ -19,7 +19,7 @@ st.set_page_config(
 MODELS = {
     "Google Gemini 2.5 Pro": {
         "provider": "gemini",
-        "model": "gemini-2.5-pro-preview-0605",
+        "model": "gemini-2.5-pro",
         "api_key_name": "GOOGLE_API_KEY",
         "api_url": "https://aistudio.google.com/app/apikey"
     },
