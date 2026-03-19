@@ -511,8 +511,10 @@ def page_flow_a(model_config: dict, api_key: str):
                     st.subheader("人物提取结果")
                     try:
                         parsed = parse_json_response(result)
-                        st.json(parsed)
+                        with st.expander("查看人物JSON", expanded=False):
+                            st.json(parsed)
                         st.session_state['characters'] = parsed
+                        st.success(f"成功提取 {len(parsed.get('characters', []))} 个角色")
                     except Exception as e:
                         st.error(f"解析失败: {e}")
                         with st.expander("查看原始响应"):
@@ -530,8 +532,10 @@ def page_flow_a(model_config: dict, api_key: str):
                     st.subheader("场景提取结果")
                     try:
                         parsed = parse_json_response(result)
-                        st.json(parsed)
+                        with st.expander("查看场景JSON", expanded=False):
+                            st.json(parsed)
                         st.session_state['scenes'] = parsed
+                        st.success(f"成功提取 {len(parsed.get('scenes', []))} 个场景")
                     except Exception as e:
                         st.error(f"解析失败: {e}")
                         with st.expander("查看原始响应"):
@@ -549,38 +553,42 @@ def page_flow_a(model_config: dict, api_key: str):
                     st.subheader("道具提取结果")
                     try:
                         parsed = parse_json_response(result)
-                        st.json(parsed)
+                        with st.expander("查看道具JSON", expanded=False):
+                            st.json(parsed)
                         st.session_state['props'] = parsed
+                        st.success(f"成功提取 {len(parsed.get('props', []))} 个道具")
                     except Exception as e:
                         st.error(f"解析失败: {e}")
                         with st.expander("查看原始响应"):
                             st.code(result)
 
-        # 显示已提取的结果
+        # 显示已提取的结果 - 使用标签页更紧凑展示
         st.divider()
-        st.subheader("已提取的结果")
+        st.subheader("📋 已提取的结果")
 
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            if 'characters' in st.session_state:
-                with st.expander("👤 人物"):
-                    st.json(st.session_state['characters'])
-            else:
-                st.info("尚未提取人物")
+        if 'characters' in st.session_state or 'scenes' in st.session_state or 'props' in st.session_state:
+            # 创建标签页
+            tab1, tab2, tab3 = st.tabs(["👤 人物", "🏠 场景", "🎭 道具"])
 
-        with col2:
-            if 'scenes' in st.session_state:
-                with st.expander("🏠 场景"):
-                    st.json(st.session_state['scenes'])
-            else:
-                st.info("尚未提取场景")
+            with tab1:
+                if 'characters' in st.session_state:
+                    st.json(st.session_state['characters'], expanded=False)
+                else:
+                    st.info("尚未提取人物")
 
-        with col3:
-            if 'props' in st.session_state:
-                with st.expander("🎭 道具"):
-                    st.json(st.session_state['props'])
-            else:
-                st.info("尚未提取道具")
+            with tab2:
+                if 'scenes' in st.session_state:
+                    st.json(st.session_state['scenes'], expanded=False)
+                else:
+                    st.info("尚未提取场景")
+
+            with tab3:
+                if 'props' in st.session_state:
+                    st.json(st.session_state['props'], expanded=False)
+                else:
+                    st.info("尚未提取道具")
+        else:
+            st.info("点击上方按钮提取信息")
 
         # 清除结果按钮
         if st.button("🗑️ 清除已提取结果"):
