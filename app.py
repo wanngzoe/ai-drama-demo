@@ -511,8 +511,7 @@ def page_flow_a(model_config: dict, api_key: str):
                     st.subheader("人物提取结果")
                     try:
                         parsed = parse_json_response(result)
-                        with st.expander("查看人物JSON", expanded=False):
-                            st.json(parsed)
+                        st.json(parsed, expanded=True)
                         st.session_state['characters'] = parsed
                         st.success(f"成功提取 {len(parsed.get('characters', []))} 个角色")
                     except Exception as e:
@@ -532,8 +531,7 @@ def page_flow_a(model_config: dict, api_key: str):
                     st.subheader("场景提取结果")
                     try:
                         parsed = parse_json_response(result)
-                        with st.expander("查看场景JSON", expanded=False):
-                            st.json(parsed)
+                        st.json(parsed, expanded=True)
                         st.session_state['scenes'] = parsed
                         st.success(f"成功提取 {len(parsed.get('scenes', []))} 个场景")
                     except Exception as e:
@@ -553,8 +551,7 @@ def page_flow_a(model_config: dict, api_key: str):
                     st.subheader("道具提取结果")
                     try:
                         parsed = parse_json_response(result)
-                        with st.expander("查看道具JSON", expanded=False):
-                            st.json(parsed)
+                        st.json(parsed, expanded=True)
                         st.session_state['props'] = parsed
                         st.success(f"成功提取 {len(parsed.get('props', []))} 个道具")
                     except Exception as e:
@@ -572,19 +569,19 @@ def page_flow_a(model_config: dict, api_key: str):
 
             with tab1:
                 if 'characters' in st.session_state:
-                    st.json(st.session_state['characters'], expanded=False)
+                    st.json(st.session_state['characters'], expanded=True)
                 else:
                     st.info("尚未提取人物")
 
             with tab2:
                 if 'scenes' in st.session_state:
-                    st.json(st.session_state['scenes'], expanded=False)
+                    st.json(st.session_state['scenes'], expanded=True)
                 else:
                     st.info("尚未提取场景")
 
             with tab3:
                 if 'props' in st.session_state:
-                    st.json(st.session_state['props'], expanded=False)
+                    st.json(st.session_state['props'], expanded=True)
                 else:
                     st.info("尚未提取道具")
         else:
