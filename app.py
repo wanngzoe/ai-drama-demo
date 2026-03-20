@@ -64,18 +64,25 @@ def get_llm_client(model_config: dict, api_key: str):
     return None
 
 
-def call_llm(client, model_config: dict, prompt: str) -> str:
+def call_llm(client, model_config: dict, prompt: str, max_tokens: int = 80000) -> str:
     """调用LLM"""
     try:
         if model_config["provider"] == "gemini":
-            response = client.generate_content(prompt)
+            response = client.generate_content(
+                prompt,
+                generation_config={
+                    "max_output_tokens": max_tokens,
+                    "temperature": 0.7
+                }
+            )
             return response.text
 
         elif model_config["provider"] == "openai":
             response = client.chat.completions.create(
                 model=model_config["model"],
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.7
+                temperature=0.7,
+                max_tokens=max_tokens
             )
             return response.choices[0].message.content
 
@@ -128,6 +135,137 @@ SCRIPT_VALIDATION_PROMPT = """
 ### 剧本内容：
 {script_content}
 """
+
+# ============== 辅助函数：分段处理长剧本 ==============
+
+def split_script_for_extraction(script_content: str, max_chunk_size: int = 30000) -> list:
+    """
+    将长剧本分割成多个部分处理
+    按集数分割，如果单集太长则按段落分割
+    """
+    chunks = []
+
+    # 按集数分割
+    import re
+    episodes = re.split(r'(第\d+集[：:])', script_content)
+
+    if len(episodes) <= 2:
+        # 只有一集，按段落分割
+        paragraphs = script_content.split('\n\n')
+        current_chunk = ""
+        for para in paragraphs:
+            if len(current_chunk) + len(para) > max_chunk_size:
+                if current_chunk:
+                    chunks.append(current_chunk)
+                current_chunk = para
+            else:
+                current_chunk += "\n\n" + para
+        if current_chunk:
+            chunks.append(current_chunk)
+    else:
+        # 多集，保留集数标题
+        current_chunk = ""
+        for i, part in enumerate(episodes):
+            if i == 0 and not re.match(r'第\d+集[：:]', part):
+                current_chunk = part
+                continue
+
+            if len(current_chunk) + len(part) > max_chunk_size:
+                if current_chunk:
+                    chunks.append(current_chunk)
+                current_chunk = part
+            else:
+                current_chunk += part
+
+        if current_chunk:
+            chunks.append(current_chunk)
+
+    return chunks if chunks else [script_content]
+
+
+def extract_with_chunking(client, model_config: dict, base_prompt: str, script_content: str, extraction_type: str) -> dict:
+    """
+    分段提取信息，最后合并结果
+    """
+    from openai import OpenAI
+
+    chunks = split_script_for_extraction(script_content)
+
+    if len(chunks) == 1:
+        # 单个chunk，直接处理
+        prompt = base_prompt.format(script_content=script_content)
+        result = call_llm(client, model_config, prompt)
+        return parse_json_response(result)
+
+    # 多个chunk，分段处理
+    results = []
+
+    for i, chunk in enumerate(chunks):
+        prompt = base_prompt.format(script_content=chunk)
+        result = call_llm(client, model_config, prompt)
+        parsed = parse_json_response(result)
+        results.append(parsed)
+
+    # 合并结果
+    return merge_extraction_results(results, extraction_type)
+
+
+def merge_extraction_results(results: list, extraction_type: str) -> dict:
+    """
+    合并多个提取结果
+    """
+    if extraction_type == "characters":
+        # 合并人物
+        all_characters = []
+        seen_names = set()
+
+        for result in results:
+            characters = result.get("characters", [])
+            for char in characters:
+                if char.get("name") not in seen_names:
+                    all_characters.append(char)
+                    seen_names.add(char.get("name"))
+
+        # 保留第一个结果的background_setting
+        background = results[0].get("background_setting", {}) if results else {}
+
+        return {
+            "background_setting": background,
+            "characters": all_characters
+        }
+
+    elif extraction_type == "scenes":
+        # 合并场景
+        all_scenes = []
+        seen_names = set()
+
+        for result in results:
+            scenes = result.get("scenes", [])
+            for scene in scenes:
+                if scene.get("name") not in seen_names:
+                    all_scenes.append(scene)
+                    seen_names.add(scene.get("name"))
+
+        return {"scenes": all_scenes}
+
+    elif extraction_type == "props":
+        # 合并道具
+        all_props = []
+        seen_names = set()
+
+        for result in results:
+            props = result.get("props", [])
+            for prop in props:
+                if prop.get("name") not in seen_names:
+                    all_props.append(prop)
+                    seen_names.add(prop.get("name"))
+
+        return {"props": all_props}
+
+    return results[0] if results else {}
+
+
+# ============== Prompt模板 ==============
 
 # 人物提取Prompt
 CHARACTER_EXTRACTION_PROMPT = """
@@ -515,61 +653,95 @@ def page_flow_a(model_config: dict, api_key: str):
             if st.button("提取人物", type="primary", disabled=not api_key):
                 if not check_api_key(model_config, api_key):
                     return
+
+                script_len = len(script_content)
+                is_long_script = script_len > 30000
+
+                if is_long_script:
+                    st.info(f"剧本较长（{script_len}字符），将自动分段处理...")
+
                 with st.spinner("提取人物中..."):
                     client = get_llm_client(model_config, api_key)
-                    prompt = CHARACTER_EXTRACTION_PROMPT.format(script_content=script_content)
-                    result = call_llm(client, model_config, prompt)
+
+                    # 根据剧本长度决定处理方式
+                    if is_long_script:
+                        parsed = extract_with_chunking(
+                            client, model_config,
+                            CHARACTER_EXTRACTION_PROMPT,
+                            script_content,
+                            "characters"
+                        )
+                    else:
+                        prompt = CHARACTER_EXTRACTION_PROMPT.format(script_content=script_content)
+                        result = call_llm(client, model_config, prompt)
+                        parsed = parse_json_response(result)
 
                     st.subheader("人物提取结果")
-                    try:
-                        parsed = parse_json_response(result)
-                        st.json(parsed, expanded=True)
-                        st.session_state['characters'] = parsed
-                        st.success(f"成功提取 {len(parsed.get('characters', []))} 个角色")
-                    except Exception as e:
-                        st.error(f"解析失败: {e}")
-                        with st.expander("查看原始响应"):
-                            st.code(result)
+                    st.json(parsed, expanded=True)
+                    st.session_state['characters'] = parsed
+                    st.success(f"成功提取 {len(parsed.get('characters', []))} 个角色")
 
         with col2:
             if st.button("提取场景", disabled=not api_key):
                 if not check_api_key(model_config, api_key):
                     return
+
+                script_len = len(script_content)
+                is_long_script = script_len > 30000
+
+                if is_long_script:
+                    st.info(f"剧本较长（{script_len}字符），将自动分段处理...")
+
                 with st.spinner("提取场景中..."):
                     client = get_llm_client(model_config, api_key)
-                    prompt = SCENE_EXTRACTION_PROMPT.format(script_content=script_content)
-                    result = call_llm(client, model_config, prompt)
+
+                    if is_long_script:
+                        parsed = extract_with_chunking(
+                            client, model_config,
+                            SCENE_EXTRACTION_PROMPT,
+                            script_content,
+                            "scenes"
+                        )
+                    else:
+                        prompt = SCENE_EXTRACTION_PROMPT.format(script_content=script_content)
+                        result = call_llm(client, model_config, prompt)
+                        parsed = parse_json_response(result)
 
                     st.subheader("场景提取结果")
-                    try:
-                        parsed = parse_json_response(result)
-                        st.json(parsed, expanded=True)
-                        st.session_state['scenes'] = parsed
-                        st.success(f"成功提取 {len(parsed.get('scenes', []))} 个场景")
-                    except Exception as e:
-                        st.error(f"解析失败: {e}")
-                        with st.expander("查看原始响应"):
-                            st.code(result)
+                    st.json(parsed, expanded=True)
+                    st.session_state['scenes'] = parsed
+                    st.success(f"成功提取 {len(parsed.get('scenes', []))} 个场景")
 
         with col3:
             if st.button("提取道具", disabled=not api_key):
                 if not check_api_key(model_config, api_key):
                     return
+
+                script_len = len(script_content)
+                is_long_script = script_len > 30000
+
+                if is_long_script:
+                    st.info(f"剧本较长（{script_len}字符），将自动分段处理...")
+
                 with st.spinner("提取道具中..."):
                     client = get_llm_client(model_config, api_key)
-                    prompt = PROP_EXTRACTION_PROMPT.format(script_content=script_content)
-                    result = call_llm(client, model_config, prompt)
+
+                    if is_long_script:
+                        parsed = extract_with_chunking(
+                            client, model_config,
+                            PROP_EXTRACTION_PROMPT,
+                            script_content,
+                            "props"
+                        )
+                    else:
+                        prompt = PROP_EXTRACTION_PROMPT.format(script_content=script_content)
+                        result = call_llm(client, model_config, prompt)
+                        parsed = parse_json_response(result)
 
                     st.subheader("道具提取结果")
-                    try:
-                        parsed = parse_json_response(result)
-                        st.json(parsed, expanded=True)
-                        st.session_state['props'] = parsed
-                        st.success(f"成功提取 {len(parsed.get('props', []))} 个道具")
-                    except Exception as e:
-                        st.error(f"解析失败: {e}")
-                        with st.expander("查看原始响应"):
-                            st.code(result)
+                    st.json(parsed, expanded=True)
+                    st.session_state['props'] = parsed
+                    st.success(f"成功提取 {len(parsed.get('props', []))} 个道具")
 
         # 显示已提取的结果 - 使用标签页更紧凑展示
         st.divider()
