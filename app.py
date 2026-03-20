@@ -285,6 +285,10 @@ CHARACTER_EXTRACTION_PROMPT = """
    - 格式：`角色名_年龄段`，如 `楚寒烟_幼年`、`楚寒烟_青年`
    - 每个年龄段独立记录appearances
 
+3. **记录出现集数**（重要）：
+   - 每个角色版本需要记录 `appears_in: [1, 2, 5]` 表示在哪些集数出现
+   - 方便后续分镜时检查哪些角色的图片已就绪
+
 3. **禁止合并**：
    - 绝对不能将多个角色合并为一个"综合角色"
    - 不能使用"其他角色"、"反派若干"、"龙套若干"等模糊描述
@@ -327,6 +331,8 @@ CHARACTER_EXTRACTION_PROMPT = """
               "pose": "姿态"
             }}
           ],
+          "appears_in": [1, 2, 5],  // 在哪些集数出现
+          "image_id": "img_xxx",  // 生成的参考图ID（可选）
           "first_appearance": "第1集 第1场"
         }}
       ]
@@ -825,6 +831,82 @@ def page_flow_b(model_config: dict, api_key: str):
                     st.error(f"解析失败: {e}")
                     with st.expander("查看原始响应"):
                         st.code(result)
+
+        # 步骤1.5：检查分镜中的角色是否有参考图
+        if 'shots' in st.session_state and st.session_state['shots']:
+            st.divider()
+            st.subheader("🔍 分镜角色图片检查")
+
+            # 检查是否有提取的人物数据
+            if 'characters' not in st.session_state:
+                st.warning("⚠️ 请先在「流程A」中提取人物信息，以便检查角色图片是否完整")
+
+                # 仍然允许继续，但提示用户
+                if st.checkbox("跳过检查，继续生成提示词", value=False):
+                    pass
+                else:
+                    st.stop()
+            else:
+                # 执行检查
+                characters_data = st.session_state['characters']
+
+                # 收集分镜中所有角色
+                all_shot_chars = set()
+                for shot in st.session_state['shots']:
+                    for char in shot.get('characters', []):
+                        all_shot_chars.add(char.get('version_name', char.get('name', '')))
+
+                # 检查每个角色
+                has_images = []
+                missing_images = []
+
+                for char_name in all_shot_chars:
+                    if not char_name:
+                        continue
+
+                    found = False
+                    for character in characters_data.get('characters', []):
+                        for version in character.get('versions', []):
+                            if version.get('version_name') == char_name:
+                                found = True
+                                if version.get('image_id'):
+                                    has_images.append({
+                                        "version_name": char_name,
+                                        "image_id": version.get('image_id')
+                                    })
+                                else:
+                                    missing_images.append({
+                                        "version_name": char_name,
+                                        "appears_in": version.get('appears_in', [])
+                                    })
+                                break
+
+                    if not found:
+                        missing_images.append({
+                            "version_name": char_name,
+                            "reason": "未在人物库中找到"
+                        })
+
+                # 显示检查结果
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    st.success(f"✅ 已就绪 ({len(has_images)}个)")
+                    if has_images:
+                        for item in has_images:
+                            st.write(f"• {item['version_name']} ({item['image_id']})")
+
+                with col2:
+                    if missing_images:
+                        st.error(f"⚠️ 缺少图片 ({len(missing_images)}个)")
+                        for item in missing_images:
+                            appears = item.get('appears_in', [])
+                            appears_str = f" 集数{appears}" if appears else ""
+                            st.write(f"• {item['version_name']}{appears_str}")
+
+                        st.info("💡 提示：缺少图片的角色将使用文字描述")
+                    else:
+                        st.success("🎉 所有角色图片都已就绪！")
 
         # 步骤2：生成生视频提示词
         if 'shots' in st.session_state and st.session_state['shots']:
